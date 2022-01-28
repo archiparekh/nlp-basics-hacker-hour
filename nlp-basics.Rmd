@@ -2,8 +2,8 @@
 title: "NLP Basics Hacker Hour"
 author: "Archi Parekh"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -32,17 +32,140 @@ library(tidytext)
 library(ggplot2)
 library(sotu)
 library(quanteda)
+library(SnowballC)
 ```
 
 
 ```{r}
-fp <- sotu_dir()
-txt <- readLines(fp[200])
-president.speech.loc <- fp
-fp
+# setting index numbers to president names so it is easy to follow along
+```
+
+
+###Preprocessing
+
+Let's analyze presidential inaugural speeches from the from the 2000s. First, I'll demonstrate preprocessing on Biden's inaugural speech.
+
+```{r}
+biden <- data_corpus_inaugural[59] %>% stack() %>% as_tibble()
+colnames(biden) <- c("text", "title")
+biden[["text"]]
+```
+
+There's a lot of data here that we want to analyze. Let's start off by separating the words in Biden's inaugural speech. This is done using a function in tidytext called unnest_tokens. 
+```{r}
+biden_words <- biden %>% unnest_tokens(word, text)
+```
+
+The easiest way to explore a speech is to see which words are used most frequently. 
+
+```{r}
+biden_words %>% 
+  count(word, sort=TRUE) %>% 
+  slice(1:10) %>% 
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon2") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("10 most frequent words in Biden's speech"))
+
+```
+This isn't very useful. Common words like "the" are called stop words and we can remov
+
+```{r}
+biden_words <- biden_words %>% anti_join(stop_words)
+biden_words_plot <- biden_words %>% 
+  count(word, sort=TRUE) %>% 
+  slice(1:10) %>% 
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon2") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("Biden's top 10 words"))
+biden_words_plot
+```
+```{r}
+biden_words_stemmed <- biden_words %>% mutate_at("word", funs(wordStem((.), language="en")))
+
+biden_words_stemmed_plot <- biden_words_stemmed %>% 
+  count(word, sort=TRUE) %>% 
+  slice(1:10) %>% 
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon2") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("Biden's top 10 words stemmed"))
+biden_words_stemmed_plot
+
+```
+
+
+
+
+So far, we have used the bag of words approach to analyzing this speech. Let's use bigrams and trigrams and see if that yields any interesting results. 
+
+```{r}
+biden_bigrams <- biden %>% unnest_tokens(word, text, token = "ngrams", n=2)
+biden_bigrams %>% 
+  count(word, sort=TRUE) %>% 
+  slice(1:10) %>% 
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon1") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("10 most frequent bigrams in Biden's speech"))
+
+```
+Out of curiosity, let's see what trigrams are most frequent.
+
+```{r}
+biden %>% 
+  unnest_tokens(word, text, token = "ngrams", n=3) %>% 
+  count(word, sort=TRUE) %>% 
+  slice(1:10) %>% 
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon1") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("10 most frequent trigrams in Biden's speech"))
+```
+
+I'm curious how Biden's and Trump's top 10 words compare. 
+
+```{r}
+trump_words_plot <- data_corpus_inaugural[58] %>% 
+  stack() %>% 
+  as_tibble() %>% 
+  unnest_tokens(word, values) %>% 
+  anti_join(stop_words) %>%
+  count(word, sort=TRUE) %>%
+  slice(1:10) %>%
+  mutate(word=reorder(word, n)) %>% 
+  ggplot(aes(n, word)) + geom_col(fill="salmon1") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("Trump's Top 10 Words"))
+
+
+require(gridExtra)
+grid.arrange(biden_words_plot, trump_words_plot, ncol=2)
+```
+
+Comparing word frequencies is just one way to compare documents. In this example, we see how words like america and americans are common to both speeches. We don't really care about the frequency of "america" as much because it is a similarity. We would rather focus on the differences between the texts. To do this, we need to play around with the weights of the word frequencies relative to other documents in a corpus. 
+
+[explanation in slides]
+
+If that felt overwhelming, don't worry. Tidy text has a function implementing all that math. Let's see how similar inaugural speeches from Bush to Biden were. 
+
+```{r}
+speech_data <- data_corpus_inaugural %>% tail() %>% stack() %>% as_tibble()
+colnames(speech_data) <- c("text", "title")
+
+speeches <- speech_data %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word)
+
+speech_tfidf <- speeches %>% bind_tf_idf(word, title, n)
+
+```
+
+
+```{r}
+speech_tfidf %>% filter(word == "afford")
 ```
 
 ```{r}
-View(data_corpus_inaugural)
+speech_tfidf %>% filter(title == "2021-Biden") %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  head(10) %>%
+  ggplot(aes(tf_idf, word)) +
+  geom_col(fill='blue') +
+  labs(y = NULL, x='TF-IDF weight', title="10 stems with highest TF-IDF weight in The Biden's Speech")
 ```
+See? Better words.
 
+Now, let's compare documents. So far, we have represented each document in the corpus as a vector. With some basic linear algebra knowledge, we can see that the closer a vector is to another, the more similar. 
+
+
+
+speeches <- speech_data %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word) %>% cast_dtm(title, word, n)
