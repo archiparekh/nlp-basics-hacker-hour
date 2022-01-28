@@ -1,0 +1,48 @@
+---
+title: "NLP Basics Hacker Hour"
+author: "Archi Parekh"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+# Do not edit this chunk
+
+# The following lines define how the output of code chunks should behave
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(include = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(error = TRUE)
+
+# Required packages
+library(rmarkdown)
+library(knitr)
+```
+
+
+```{r}
+library(readr)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(tidyr)
+library(tidytext)
+library(ggplot2)
+library(sotu)
+library(quanteda)
+```
+
+
+```{r}
+fp <- sotu_dir()
+txt <- readLines(fp[200])
+president.speech.loc <- fp
+fp
+```
+
+```{r}
+View(data_corpus_inaugural)
+```
+
