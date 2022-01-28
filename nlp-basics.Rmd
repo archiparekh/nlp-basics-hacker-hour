@@ -35,12 +35,6 @@ library(quanteda)
 library(SnowballC)
 ```
 
-
-```{r}
-# setting index numbers to president names so it is easy to follow along
-```
-
-
 ###Preprocessing
 
 Let's analyze presidential inaugural speeches from the from the 2000s. First, I'll demonstrate preprocessing on Biden's inaugural speech.
@@ -77,6 +71,8 @@ biden_words_plot <- biden_words %>%
   ggplot(aes(n, word)) + geom_col(fill="salmon2") + geom_text(aes(label = n), hjust = 1.5, colour = "white") + labs(y = NULL, x = "Term frequency", title = paste("Biden's top 10 words"))
 biden_words_plot
 ```
+
+Maybe let's step
 ```{r}
 biden_words_stemmed <- biden_words %>% mutate_at("word", funs(wordStem((.), language="en")))
 
@@ -159,13 +155,138 @@ speech_tfidf %>% filter(title == "2021-Biden") %>%
   mutate(word = reorder(word, tf_idf)) %>%
   head(10) %>%
   ggplot(aes(tf_idf, word)) +
-  geom_col(fill='blue') +
+  geom_col(fill='salmon2') +
   labs(y = NULL, x='TF-IDF weight', title="10 stems with highest TF-IDF weight in The Biden's Speech")
 ```
 See? Better words.
 
 Now, let's compare documents. So far, we have represented each document in the corpus as a vector. With some basic linear algebra knowledge, we can see that the closer a vector is to another, the more similar. 
 
+This is called cosine similarity. 
+
+```{r}
+tf_matrix <- speech_tfidf %>%
+  cast_dtm(title, word, tf) %>% 
+  as.matrix()
+
+# To calculate cosine similarity with matrices, normalize each column and multiply by transpose
+
+normalize <- function(v) {
+  return (v/sqrt(v %*% v))
+}
+
+for (i in 1:dim(tf_matrix)[1]) {
+  tf_matrix[i,] <- normalize(tf_matrix[i,])
+}
 
 
-speeches <- speech_data %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word) %>% cast_dtm(title, word, n)
+sims <- tf_matrix %*% t(tf_matrix)
+
+library(reshape2)
+library(viridis)
+data <- melt(sims)
+colnames(data) <- c("speech.i", "speech.j", "similarity")
+
+ggplot(data, aes(x = speech.j, y = speech.i, fill = similarity)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0.5, space = "Lab", 
+   name="Cosine\nSimilarity") +
+  theme_minimal() + 
+  labs (x = "", y = "", title = "Cosine Similarities of Presidential Inaugural Speeches in the 2000s") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ylim(rev(levels(data$speech.i))) + 
+  xlim(levels(data$speech.j))
+
+```
+
+Let's try doing all inaugural speeches.
+
+```{r}
+
+all_speech_data <- data_corpus_inaugural %>% stack() %>% as_tibble()
+colnames(all_speech_data) <- c("text", "title")
+
+all_speeches <- all_speech_data %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word)
+
+all_tf_matrix <- all_speeches %>% 
+  bind_tf_idf(word, title, n) %>%
+  cast_dtm(title, word, tf) %>% 
+  as.matrix()
+
+# To calculate cosine similarity with matrices, normalize each column and multiply by transpose
+
+for (i in 1:dim(all_tf_matrix)[1]) {
+  all_tf_matrix[i,] <- normalize(all_tf_matrix[i,])
+}
+
+
+all.sims <- all_tf_matrix %*% t(all_tf_matrix)
+
+
+data2 <- melt(all.sims)
+colnames(data2) <- c("speech.i", "speech.j", "similarity")
+
+ggplot(data2, aes(x = speech.j, y = speech.i, fill = similarity)) + 
+  geom_tile() +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000", 
+                       midpoint = 0.5, 
+                       space = "Lab", 
+                       name="Cosine\nSimilarity") +
+  theme_minimal() + 
+  labs (x = "", y = "", title = "Cosine Similarities of Presidential Inaugural Speeches") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  ylim(rev(levels(data2$speech.i))) + 
+  xlim(levels(data2$speech.j))
+
+```
+
+
+Possible live coding with SOTU speeches? Or possible topic modeling?
+
+```{r}
+names <- fp %>% as_tibble() %>% mutate(speech_title = (value %>% str_extract(regex("/.*\\.")) %>% str_sub(2, -2)))
+
+for(i in 1:236){
+  names$text[i] <- readLines(fp[i]) %>% paste(collapse = ' ')
+}
+
+colnames(names) <- c("file_name", "title", "text")
+
+sotu_speeches <- names %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word)
+
+
+```
+
+Possible topic modeling?
+
+```{r}
+
+## NOTE: This code is not mine, it is from my class notes. 
+
+DTM <- sotu_speeches %>%
+  cast_dtm(title, word, n)
+
+library(topicmodels)
+
+sotu_model <- LDA(DTM, k=20, control = list(seed = 10980))
+
+topics <- tidy(sotu_model, matrix = "beta")
+
+top_terms <- 
+  topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>% filter(topic <= 9) %>% # Only first 12 topics
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() + labs(y="Beta", x="Term", caption="Top 10 highest words for each topic")
+```
+
