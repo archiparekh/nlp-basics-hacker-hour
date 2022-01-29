@@ -2,8 +2,8 @@
 title: "NLP Basics Hacker Hour"
 author: "Archi Parekh"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -15,27 +15,27 @@ knitr::opts_chunk$set(include = TRUE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(error = TRUE)
-
-# Required packages
-library(rmarkdown)
-library(knitr)
 ```
 
+# NLP Basics Hacker Hour Demo
 
 ```{r}
+library(rmarkdown)
+library(knitr)
 library(readr)
 library(dplyr)
 library(stringr)
-library(lubridate)
 library(tidyr)
 library(tidytext)
 library(ggplot2)
 library(sotu)
 library(quanteda)
 library(SnowballC)
+library(reshape2)
+library(viridis)
 ```
 
-###Preprocessing
+### Preprocessing
 
 Let's analyze presidential inaugural speeches from the from the 2000s. First, I'll demonstrate preprocessing on Biden's inaugural speech.
 
@@ -49,6 +49,8 @@ There's a lot of data here that we want to analyze. Let's start off by separatin
 ```{r}
 biden_words <- biden %>% unnest_tokens(word, text)
 ```
+
+### Word Frequency Analysis
 
 The easiest way to explore a speech is to see which words are used most frequently. 
 
@@ -72,7 +74,7 @@ biden_words_plot <- biden_words %>%
 biden_words_plot
 ```
 
-Maybe let's step
+Stemming is a way of combining common words like "democracy" and "democracies"
 ```{r}
 biden_words_stemmed <- biden_words %>% mutate_at("word", funs(wordStem((.), language="en")))
 
@@ -128,6 +130,7 @@ require(gridExtra)
 grid.arrange(biden_words_plot, trump_words_plot, ncol=2)
 ```
 
+### Comparing Documents with TF-IDF and Cosine Similarity
 Comparing word frequencies is just one way to compare documents. In this example, we see how words like america and americans are common to both speeches. We don't really care about the frequency of "america" as much because it is a similarity. We would rather focus on the differences between the texts. To do this, we need to play around with the weights of the word frequencies relative to other documents in a corpus. 
 
 [explanation in slides]
@@ -144,6 +147,7 @@ speech_tfidf <- speeches %>% bind_tf_idf(word, title, n)
 
 ```
 
+Change the word below to explore different weights. If you try a word like "america" or "carry", you will find that the tf-idf weight is 0. This is because it occurs in every single document in the corpus.
 
 ```{r}
 speech_tfidf %>% filter(word == "afford")
@@ -156,7 +160,7 @@ speech_tfidf %>% filter(title == "2021-Biden") %>%
   head(10) %>%
   ggplot(aes(tf_idf, word)) +
   geom_col(fill='salmon2') +
-  labs(y = NULL, x='TF-IDF weight', title="10 stems with highest TF-IDF weight in The Biden's Speech")
+  labs(y = NULL, x='TF-IDF weight', title="Top 10 words by TF-IDF weight in Biden's speech")
 ```
 See? Better words.
 
@@ -170,6 +174,7 @@ tf_matrix <- speech_tfidf %>%
   as.matrix()
 
 # To calculate cosine similarity with matrices, normalize each column and multiply by transpose
+# you can find a proof of why this works online.
 
 normalize <- function(v) {
   return (v/sqrt(v %*% v))
@@ -182,8 +187,6 @@ for (i in 1:dim(tf_matrix)[1]) {
 
 sims <- tf_matrix %*% t(tf_matrix)
 
-library(reshape2)
-library(viridis)
 data <- melt(sims)
 colnames(data) <- c("speech.i", "speech.j", "similarity")
 
@@ -242,51 +245,33 @@ ggplot(data2, aes(x = speech.j, y = speech.i, fill = similarity)) +
   xlim(levels(data2$speech.j))
 
 ```
+The lighter yellowish reddish colors around the diagonal show that most inaugural speeches are similar to presidents of their time period. 
 
+This is the end of the hacker hour demo. Thanks for following along! 
 
-Possible live coding with SOTU speeches? Or possible topic modeling?
+# Next steps!
+
+Play around with the code yourself by analyzing different presidents' speeches. Inaugural speeches can be pretty similar. Try doing a similar analysis on State of the Union speeches. I did some preprocessing below. See if you can implement tf-idf and cosine-similarity on these speeches. If you need help or want to share your analysis, message me on Discord (Archi#4892), LinkedIn, or email me at archiparekh23 at gmail dot com.
+
 
 ```{r}
+# storing all speeches in temp files on my computer. View fp to see what it contains!
+fp <- sotu_dir()
+
+#Extracting speech titles from the file names
 names <- fp %>% as_tibble() %>% mutate(speech_title = (value %>% str_extract(regex("/.*\\.")) %>% str_sub(2, -2)))
 
+#Extracting speech text from each file and adding it to the tibble in the "text" column
 for(i in 1:236){
   names$text[i] <- readLines(fp[i]) %>% paste(collapse = ' ')
 }
 
+#Renaming columns
 colnames(names) <- c("file_name", "title", "text")
 
+#Preprocessing
 sotu_speeches <- names %>% unnest_tokens(word, text) %>% anti_join(stop_words) %>% count(title, word)
 
+#Take a look at the sotu_speeches object. Use code from above to do some analysis!
 
 ```
-
-Possible topic modeling?
-
-```{r}
-
-## NOTE: This code is not mine, it is from my class notes. 
-
-DTM <- sotu_speeches %>%
-  cast_dtm(title, word, n)
-
-library(topicmodels)
-
-sotu_model <- LDA(DTM, k=20, control = list(seed = 10980))
-
-topics <- tidy(sotu_model, matrix = "beta")
-
-top_terms <- 
-  topics %>%
-  group_by(topic) %>%
-  top_n(10, beta) %>%
-  ungroup() %>%
-  arrange(topic, -beta)
-
-top_terms %>% filter(topic <= 9) %>% # Only first 12 topics
-  mutate(term = reorder(term, beta)) %>%
-  ggplot(aes(term, beta, fill = factor(topic))) +
-  geom_col(show.legend = FALSE) +
-  facet_wrap(~ topic, scales = "free") +
-  coord_flip() + labs(y="Beta", x="Term", caption="Top 10 highest words for each topic")
-```
-
